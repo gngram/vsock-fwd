@@ -1,0 +1,11 @@
+**/*.o
+**/*.cmd
+**/*.ko
+**/*.mod
+**/*.mod.*
+modules.order
+Module.symvers
+*.qcow2
+*.qcow2
+target
+test-result

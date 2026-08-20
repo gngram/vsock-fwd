@@ -19,13 +19,13 @@ MODULE_DESCRIPTION("Transparent VSOCK Redirect Proxy Kernel Module");
 MODULE_VERSION("1.0");
 
 /* Configuration parameters */
-static unsigned int vmx_cid = 0;
+static unsigned int dest_cid = 0;
 static unsigned int port_start = 0;
 static unsigned int port_end = 0;
 static int port_offset = 0;
 
-module_param(vmx_cid, uint, 0644);
-MODULE_PARM_DESC(vmx_cid, "CID of the target VM-X");
+module_param(dest_cid, uint, 0644);
+MODULE_PARM_DESC(dest_cid, "CID of the target VM-X");
 module_param(port_start, uint, 0644);
 MODULE_PARM_DESC(port_start, "Start of redirect port range");
 module_param(port_end, uint, 0644);
@@ -204,17 +204,17 @@ static void notrace hook_virtio_transport_recv_pkt(unsigned long ip, unsigned lo
     src_cid = le64_to_cpu(hdr->src_cid);
 
     /* Intercept packets from guest to host (CID 2) on redirected ports */
-    if (vmx_cid != 0 && dst_cid == 2 && src_cid != vmx_cid && is_redirect_port(dst_port)) {
+    if (dest_cid != 0 && dst_cid == 2 && src_cid != dest_cid && is_redirect_port(dst_port)) {
         u32 new_port = map_port(dst_port);
 
         pr_info("vsock_fwd: Forward intercept: guest %llu:%u -> host :%u. Redirecting to VM-X %u:%u (op=%u)\n",
-                src_cid, le32_to_cpu(hdr->src_port), dst_port, vmx_cid, new_port, le16_to_cpu(hdr->op));
+                src_cid, le32_to_cpu(hdr->src_port), dst_port, dest_cid, new_port, le16_to_cpu(hdr->op));
 
         /* Add to active sessions table */
         add_session(src_cid, le32_to_cpu(hdr->src_port), new_port);
 
         /* Rewrite destination */
-        hdr->dst_cid = cpu_to_le64(vmx_cid);
+        hdr->dst_cid = cpu_to_le64(dest_cid);
         hdr->dst_port = cpu_to_le32(new_port);
 
         /* Re-inject to VM-X's virtqueue */
@@ -254,7 +254,7 @@ static void notrace hook_virtio_transport_deliver_tap_pkt(unsigned long ip, unsi
     dst_port = le32_to_cpu(hdr->dst_port);
 
     /* Intercept response packets from VM-X to the guest */
-    if (vmx_cid != 0 && src_cid == vmx_cid && dst_cid != 2 && dst_cid != vmx_cid) {
+    if (dest_cid != 0 && src_cid == dest_cid && dst_cid != 2 && dst_cid != dest_cid) {
         if (session_exists(dst_cid, dst_port, src_port)) {
             struct sk_buff *cloned;
 
@@ -303,7 +303,7 @@ static struct proc_dir_entry *proc_dir = NULL;
 
 static int config_show(struct seq_file *m, void *v)
 {
-    seq_printf(m, "vmx_cid=%u\n", vmx_cid);
+    seq_printf(m, "dest_cid=%u\n", dest_cid);
     seq_printf(m, "port_start=%u\n", port_start);
     seq_printf(m, "port_end=%u\n", port_end);
     seq_printf(m, "port_offset=%d\n", port_offset);
@@ -334,13 +334,13 @@ static ssize_t config_write(struct file *file, const char __user *buffer,
     parsed = sscanf(kbuf, "cid=%u port_start=%u port_end=%u port_offset=%d",
                     &cid, &start, &end, &offset);
     if (parsed >= 3) {
-        vmx_cid = cid;
+        dest_cid = cid;
         port_start = start;
         port_end = end;
         if (parsed >= 4)
             port_offset = offset;
-        pr_info("vsock_fwd: Updated config: vmx_cid=%u, port_start=%u, port_end=%u, port_offset=%d\n",
-                vmx_cid, port_start, port_end, port_offset);
+        pr_info("vsock_fwd: Updated config: dest_cid=%u, port_start=%u, port_end=%u, port_offset=%d\n",
+                dest_cid, port_start, port_end, port_offset);
         clean_idle_sessions();
     } else {
         pr_err("vsock_fwd: Invalid format. Expected: cid=N port_start=A port_end=B [port_offset=C]\n");
